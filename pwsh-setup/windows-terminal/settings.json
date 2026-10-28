@@ -1,0 +1,156 @@
+{
+    "$help": "https://aka.ms/terminal-documentation",
+    "$schema": "https://aka.ms/terminal-profiles-schema",
+    "actions": [],
+    "copyFormatting": "none",
+    "copyOnSelect": false,
+    "defaultProfile": "{574e775e-4f2a-5b96-ac1e-a2962a402336}",
+    "keybindings": 
+    [
+        {
+            "id": "Terminal.CopyToClipboard",
+            "keys": "ctrl+c"
+        },
+        {
+            "id": "Terminal.FindText",
+            "keys": "ctrl+shift+f"
+        },
+        {
+            "id": "Terminal.PasteFromClipboard",
+            "keys": "ctrl+v"
+        },
+        {
+            "id": "Terminal.DuplicatePaneAuto",
+            "keys": "alt+shift+d"
+        }
+    ],
+    "newTabMenu": 
+    [
+        {
+            "type": "remainingProfiles"
+        }
+    ],
+    "profiles": 
+    {
+        "defaults": 
+        {
+            "antialiasingMode": "grayscale",
+            "backgroundImage": "%USERPROFILE%\\Pictures\\TerminalBackgrounds\\aurora-night.png",
+            "backgroundImageAlignment": "center",
+            "backgroundImageOpacity": 0.55,
+            "backgroundImageStretchMode": "uniformToFill",
+            "colorScheme": "Aurora Night",
+            "cursorShape": "bar",
+            "font": 
+            {
+                "face": "JetBrainsMono Nerd Font",
+                "size": 12
+            },
+            "opacity": 92,
+            "padding": "10, 8, 10, 8",
+            "scrollbarState": "hidden",
+            "useAcrylic": true
+        },
+        "list": 
+        [
+            {
+                "commandline": "C:\\Program Files\\PowerShell\\7\\pwsh.exe -NoLogo",
+                "guid": "{574e775e-4f2a-5b96-ac1e-a2962a402336}",
+                "hidden": false,
+                "icon": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+                "name": "PowerShell 7",
+                "source": "Windows.Terminal.PowershellCore",
+                "startingDirectory": "%USERPROFILE%"
+            },
+            {
+                "commandline": "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "guid": "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}",
+                "hidden": false,
+                "name": "Windows PowerShell"
+            },
+            {
+                "commandline": "%SystemRoot%\\System32\\cmd.exe",
+                "guid": "{0caa0dad-35be-5f56-a8ff-afceeeaa6101}",
+                "hidden": false,
+                "name": "\u547d\u4ee4\u63d0\u793a\u7b26"
+            },
+            {
+                "guid": "{b453ae62-4e3d-5e58-b989-0a998ec441b8}",
+                "hidden": false,
+                "name": "Azure Cloud Shell",
+                "source": "Windows.Terminal.Azure"
+            },
+            {
+                "guid": "{5e9abf1c-00ce-51e7-a7b8-64309d79f4ca}",
+                "hidden": false,
+                "name": "Developer Command Prompt for VS 18",
+                "source": "Windows.Terminal.VisualStudio"
+            },
+            {
+                "guid": "{b30ec840-4e9b-5084-ab2f-fe36d65d29ba}",
+                "hidden": false,
+                "name": "Developer PowerShell for VS 18",
+                "source": "Windows.Terminal.VisualStudio"
+            },
+            {
+                "guid": "{2ece5bfe-50ed-5f3a-ab87-5cd4baafed2b}",
+                "hidden": false,
+                "name": "Git Bash",
+                "source": "Git"
+            }
+        ]
+    },
+    "schemes": 
+    [
+        {
+            "background": "#0B0E1A",
+            "black": "#0B0E1A",
+            "blue": "#60A5FA",
+            "brightBlack": "#4B5563",
+            "brightBlue": "#93C5FD",
+            "brightCyan": "#5EEAD4",
+            "brightGreen": "#6EE7B7",
+            "brightPurple": "#C4B5FD",
+            "brightRed": "#FDA4AF",
+            "brightWhite": "#F8FAFC",
+            "brightYellow": "#FDE68A",
+            "cursorColor": "#2DD4BF",
+            "cyan": "#2DD4BF",
+            "foreground": "#E5E7EB",
+            "green": "#34D399",
+            "name": "Aurora Night",
+            "purple": "#A78BFA",
+            "red": "#FB7185",
+            "selectionBackground": "#2E5A66",
+            "white": "#E5E7EB",
+            "yellow": "#FBBF24"
+        }
+    ],
+    "theme": "aurora",
+    "themes": 
+    [
+        {
+            "name": "aurora",
+            "tab": 
+            {
+                "background": "#0B0E1AFF",
+                "iconStyle": "default",
+                "showCloseButton": "always",
+                "unfocusedBackground": "#0B0E1AFF"
+            },
+            "tabRow": 
+            {
+                "background": "#0B0E1AFF",
+                "unfocusedBackground": "#0B0E1AFF"
+            },
+            "window": 
+            {
+                "applicationTheme": "dark",
+                "experimental.rainbowFrame": false,
+                "frame": null,
+                "unfocusedFrame": null,
+                "useMica": false
+            }
+        }
+    ]
+}

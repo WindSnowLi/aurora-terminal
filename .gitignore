@@ -1,0 +1,17 @@
+# 备份与日志
+*.bak
+*.bak-*
+*.log
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# 临时产物
+*.tmp
+*.tmp.*
+~$*

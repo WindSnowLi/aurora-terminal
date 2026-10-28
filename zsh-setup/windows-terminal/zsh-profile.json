@@ -1,0 +1,9 @@
+{
+  "_comment": "Windows Terminal 中 MSYS2 zsh 的 profile 定义（Install-ZshEnv.ps1 会自动合并到 settings.json）",
+  "guid": "{e2f7c3a1-5b4d-4f6e-9c8a-1d2e3f4a5b6c}",
+  "name": "MSYS2 zsh",
+  "commandline": "\"%LOCALAPPDATA%\\Programs\\msys64\\msys2_shell.cmd\" -defterm -here -no-start -ucrt64 -shell zsh",
+  "startingDirectory": "%USERPROFILE%",
+  "icon": "%LOCALAPPDATA%\\Programs\\msys64\\msys2.ico",
+  "hidden": false
+}

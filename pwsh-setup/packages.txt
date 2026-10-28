@@ -1,0 +1,24 @@
+# winget 程序依赖（winget install --id <Id> --exact）
+Microsoft.PowerShell                  # PowerShell 7
+Microsoft.WindowsTerminal             # Windows Terminal
+JanDeDobbeleer.OhMyPosh               # 提示符引擎
+junegunn.fzf                          # 模糊搜索（PSFzf 依赖）
+ajeetdsouza.zoxide                    # 智能 cd（z / zi）
+eza-community.eza                     # 现代 ls（图标 + git 状态）
+sharkdp.bat                           # 带高亮的 cat
+sharkdp.fd                            # 快速找文件
+BurntSushi.ripgrep.MSVC               # ripgrep
+Fastfetch-cli.Fastfetch               # 启动横幅
+aristocratos.btop4win                 # 资源监视器（btop）
+dandavison.delta                      # git diff 美化
+JesseDuffield.lazygit                 # 终端 Git UI
+Git.Git                               # git / posh-git 依赖
+
+# PSGallery 模块（Install-Module -Scope CurrentUser）
+posh-git
+Terminal-Icons
+PSFzf
+Microsoft.PowerShell.ConsoleGuiTools
+
+# Nerd Font（oh-my-posh font install JetBrainsMono）
+JetBrainsMono Nerd Font
