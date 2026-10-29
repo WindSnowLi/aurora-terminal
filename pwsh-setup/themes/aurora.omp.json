@@ -60,7 +60,7 @@
           "powerline_symbol": "\ue0b0",
           "foreground": "#94A3B8",
           "background": "#151A2B",
-          "template": " \ufbab {{ .FormattedMs }} ",
+          "template": " \uf2f2 {{ .FormattedMs }} ",
           "properties": {
             "threshold": 800,
             "style": "roundrock"

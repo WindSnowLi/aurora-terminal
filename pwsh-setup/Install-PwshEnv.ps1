@@ -179,6 +179,71 @@ function Copy-ConfigFile {
     Write-Ok "已写入: $Destination"
 }
 
+# Windows Terminal 设置是用户资产（含自定义 profile / 配色 / 键位），
+# 因此只叠加 Aurora 的配色、主题与 profile 默认值，其余原样保留；新机器无配置时才整份写入。
+function Merge-TerminalSettings {
+    param([string]$Source, [string]$Destination)
+
+    if (-not (Test-Path -LiteralPath $Destination)) {
+        Copy-ConfigFile -Source $Source -Destination $Destination
+        return
+    }
+
+    try {
+        $existing = Get-Content -LiteralPath $Destination -Raw | ConvertFrom-Json -AsHashtable
+        $reference = Get-Content -LiteralPath $Source -Raw | ConvertFrom-Json -AsHashtable
+    } catch {
+        Write-Warn "现有 settings.json 不是合法 JSON（$($_.Exception.Message)），改为整份覆盖"
+        Copy-ConfigFile -Source $Source -Destination $Destination
+        return
+    }
+
+    $existing['schemes'] = @($existing['schemes'] | Where-Object { $_ })
+    foreach ($scheme in @($reference['schemes'])) {
+        if (-not ($existing['schemes'] | Where-Object { $_.name -eq $scheme.name })) { $existing['schemes'] += $scheme }
+    }
+
+    $existing['themes'] = @($existing['themes'] | Where-Object { $_ })
+    foreach ($theme in @($reference['themes'])) {
+        if (-not ($existing['themes'] | Where-Object { $_.name -eq $theme.name })) { $existing['themes'] += $theme }
+    }
+    if ($reference.ContainsKey('theme')) { $existing['theme'] = $reference['theme'] }
+
+    if (-not $existing['profiles']) { $existing['profiles'] = @{} }
+    if (-not $existing['profiles']['list']) { $existing['profiles']['list'] = @($reference['profiles']['list']) }
+
+    $defaults = if ($existing['profiles']['defaults']) { $existing['profiles']['defaults'] } else { @{} }
+    $referenceDefaults = $reference['profiles']['defaults']
+    $backgroundImage = $referenceDefaults['backgroundImage']
+    $hasBackgroundImage = $backgroundImage -and (Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($backgroundImage)))
+    foreach ($key in $referenceDefaults.Keys) {
+        if ($key -like 'backgroundImage*' -and -not $hasBackgroundImage) { continue }
+        $defaults[$key] = $referenceDefaults[$key]
+    }
+    $existing['profiles']['defaults'] = $defaults
+    if (-not $hasBackgroundImage -and $backgroundImage) {
+        Write-Skip "背景图不存在，跳过 backgroundImage（如需启用请放到: $([Environment]::ExpandEnvironmentVariables($backgroundImage))）"
+    }
+
+    # profile 级显式字体会覆盖 defaults：默认 profile 若写死了非 Nerd 字体（例如 Fira Code），
+    # 提示符图标就会变成问号。这里只替换字体家族，字号等其余设置保留用户的。
+    $nerdFace = $referenceDefaults['font']['face']
+    foreach ($profile in @($existing['profiles']['list'])) {
+        if ($profile['guid'] -ne $existing['defaultProfile'] -or -not $profile['font']) { continue }
+        $face = $profile['font']['face']
+        if ($face -and $face -ne $nerdFace -and $face -notmatch 'Nerd Font|NF') {
+            $profile['font']['face'] = $nerdFace
+            Write-Ok "默认 profile 字体 $face → $nerdFace（否则图标会显示为问号）"
+        }
+    }
+
+    $backup = "$Destination.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    Copy-Item -LiteralPath $Destination -Destination $backup -Force
+    Write-Host "    备份旧文件: $backup" -ForegroundColor DarkGray
+    $existing | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $Destination -Encoding utf8NoBOM
+    Write-Ok "已合并 Aurora 配色/主题/默认值（保留原有 $($existing['profiles']['list'].Count) 个 profile）: $Destination"
+}
+
 # ── 0. 环境检查 ─────────────────────────────────────────────────────────────
 Write-Step '检查当前环境'
 # 先刷新 PATH：winget 安装的目录写进用户 PATH 后，新进程才可见
@@ -243,14 +308,14 @@ if ($SkipFont) {
 } else {
     Write-Step '安装 Nerd Font（JetBrainsMono）'
     if ($ompExe) {
-        $previousPreference = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        try {
-            & $ompExe font install JetBrainsMono 2>&1 | ForEach-Object { "      $_" }
-        } finally {
-            $ErrorActionPreference = $previousPreference
+        # oh-my-posh 在部分环境打印完 "Successfully installed" 后进程不退出（遗留子进程占住管道），
+        # 直接调用会把脚本卡死，这里改为带超时的等待。
+        $fontProcess = Start-Process -FilePath $ompExe -ArgumentList 'font', 'install', 'JetBrainsMono' -NoNewWindow -PassThru
+        if (-not $fontProcess.WaitForExit(300000)) {
+            Write-Warn 'oh-my-posh 未在 5 分钟内退出，已结束该进程（字体通常已写入，下面会重新检测）'
+            Stop-Process -Id $fontProcess.Id -Force -ErrorAction SilentlyContinue
         }
-        if (Test-NerdFont) { Write-Ok 'JetBrainsMono Nerd Font 安装完成' } else { Write-Warn '字体安装未生效，可在终端渲染异常时手动安装' }
+        if (Test-NerdFont) { Write-Ok 'JetBrainsMono NF 安装完成' } else { Write-Warn '字体安装未生效，可在终端渲染异常时手动安装' }
     } else {
         Write-Warn '需要先安装 oh-my-posh 才能自动装字体'
     }
@@ -307,15 +372,15 @@ if ($SkipGitDelta) {
 if ($SkipTerminalSettings) {
     Write-Step '跳过 Windows Terminal 配置（-SkipTerminalSettings）'
 } else {
-    Write-Step '还原 Windows Terminal 设置'
+    Write-Step '合并 Windows Terminal 设置（保留现有 profile 与配色）'
     $terminalSettings = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json'
     if (-not (Test-Path -LiteralPath $TerminalSettingsSource)) {
         Write-Skip '迁移包中没有 windows-terminal\settings.json'
     } elseif (-not (Test-Path -LiteralPath (Split-Path -Parent $terminalSettings))) {
         Write-Skip '未检测到 Windows Terminal，跳过'
     } else {
-        Copy-ConfigFile -Source $TerminalSettingsSource -Destination $terminalSettings
-        Write-Host '    注意：该配置引用了 "Aurora Night" 配色与背景图，字体需为 JetBrainsMono Nerd Font' -ForegroundColor DarkGray
+        Merge-TerminalSettings -Source $TerminalSettingsSource -Destination $terminalSettings
+        Write-Host '    注意：该配置引用了 "Aurora Night" 配色，字体需为 JetBrainsMono NF（Nerd Fonts 3.4+ 的家族名）' -ForegroundColor DarkGray
         Write-Host "    背景图路径（需自行拷贝）: $env:USERPROFILE\Pictures\TerminalBackgrounds\aurora-night.png" -ForegroundColor DarkGray
     }
 }
@@ -349,7 +414,7 @@ Write-Host @"
     后续步骤：
       1. 关闭并重新打开终端（或执行 . `$PROFILE）
       2. 运行 Test-PwshEnv 检查各组件状态
-      3. 若提示符或图标出现方块/问号，说明字体未生效：Windows Terminal 中把字体设为 JetBrainsMono Nerd Font
+      3. 若提示符或图标出现方块/问号，说明字体未生效：Windows Terminal 中把字体设为 JetBrainsMono NF（profile 级字体设置优先级高于全局默认）
       4. 快捷键：Tab 模糊补全 / Ctrl+R 历史 / Ctrl+T 选文件 / F2 切换预测视图 / F7 历史网格
       5. 常用命令：ll / la / lt / lg(lazygit) / btop / ff(fastfetch) / z 目录名(zoxide) / ocgv
 "@ -ForegroundColor Gray

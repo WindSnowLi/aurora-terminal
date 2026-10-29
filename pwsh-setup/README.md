@@ -31,11 +31,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Install-PwshEnv.ps1
 
 1. winget 安装 oh-my-posh、fzf、zoxide、eza、bat、fd、ripgrep、fastfetch、btop4win、delta、lazygit
 2. PSGallery 安装 posh-git、Terminal-Icons、PSFzf、ConsoleGuiTools
-3. 按需安装 JetBrainsMono Nerd Font（已有 Nerd Font 则跳过）
+3. 按需安装 JetBrainsMono Nerd Font（家族名 `JetBrainsMono NF`，已有 Nerd Font 则跳过）
 4. 部署 profile / 主题 / fastfetch 配置（内容相同则跳过，有差异则备份为 `.bak-<时间戳>`）
 5. 执行策略仅在过严时改为 `RemoteSigned`（CurrentUser）
 6. 若 `core.pager` 未设置，把 delta 设为 git 分页器（可用 `-SkipGitDelta` 跳过）
-7. 合并 Windows Terminal 设置（先备份）并做主题渲染 + 组件自检
+7. 合并 Windows Terminal 设置（先备份）：只叠加 Aurora 配色、主题与 profile 默认值，已有的 profile / 键位 / 配色原样保留
 
 开关：`-SkipModules`、`-SkipFont`、`-SkipTerminalSettings`、`-SkipGitDelta`、`-Force`。
 
@@ -90,6 +90,16 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Install-PwshEnv.ps1
    已改为 `{{ .Segments.Git }}` / `{{ .Segments.Git.HEAD }}`。
 3. **CompletionPredictor 卡死**：PowerShell 7.6 下 `Import-Module CompletionPredictor` 会挂起，
    已从配置移除（`PredictionSource` 仍为 `HistoryAndPlugin`，不影响使用）。
+4. **Windows Terminal 配置被整份覆盖**：旧版安装脚本会直接替换 `settings.json`，导致用户自己的
+   WSL / SSH profile、自定义配色和键位丢失。现在改为合并：只写入 Aurora 配色、主题与 `profiles.defaults`，
+   其余内容保留并先备份；`backgroundImage` 指向的图片不存在时自动跳过。
+5. **字体家族名对不上**：Nerd Fonts 3.4+ 的家族名是 `JetBrainsMono NF`，旧配置写死 `JetBrainsMono Nerd Font`，
+   终端找不到字体就回退默认字体，提示符出现方块。现已改为 `JetBrainsMono NF`。
+6. **`oh-my-posh font install` 不退出**：部分环境下它打印 “Successfully installed” 后进程仍驻留并占住管道，
+   会让安装脚本一直卡住；现在改为最多等待 5 分钟，超时后结束该进程并重新检测字体是否已写入。
+7. **提示符图标显示为 `?`**：两个原因叠加 —— profile 里写死的字体（如 `Fira Code`）优先级高于
+   `profiles.defaults`，以及耗时段的 `\ufbab` 在 Nerd Fonts 3.x 里没有字形。现在合并时会把默认 profile
+   的非 Nerd 字体家族换成 `JetBrainsMono NF`（字号保留），耗时图标改用 `\uf2f2`。
 
 ## 手动恢复（不想跑脚本）
 

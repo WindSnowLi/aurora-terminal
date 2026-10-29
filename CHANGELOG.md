@@ -2,6 +2,15 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased]
+
+### Fixed
+
+- `Install-PwshEnv.ps1` 不再整份覆盖 Windows Terminal `settings.json`，改为合并 Aurora 配色/主题/`profiles.defaults` 并保留用户已有的 profile、键位与配色（仍会先备份）
+- Windows Terminal 配置字体名改为 `JetBrainsMono NF`（Nerd Fonts 3.4+ 家族名），修复提示符图标显示为方块的问题
+- `oh-my-posh font install` 在部分环境不退出导致安装脚本挂起，改为带 5 分钟超时等待
+- 提示符图标显示为 `?`：合并 WT 设置时把默认 profile 上写死的非 Nerd 字体家族换成 `JetBrainsMono NF`（保留字号），并把耗时段图标从 `\ufbab`（Nerd Fonts 3.x 无此字形）改为 `\uf2f2`
+
 ## [1.0.0] - 2026-10-28
 
 ### Added

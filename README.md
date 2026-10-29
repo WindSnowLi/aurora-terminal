@@ -88,7 +88,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Install-ZshEnv.ps1
 | 正文 | `#E5E7EB` |
 | 次要文字 | `#94A3B8` |
 
-字体统一使用 **JetBrainsMono Nerd Font**（`oh-my-posh font install JetBrainsMono` 或手动安装）。
+字体统一使用 **JetBrainsMono NF**（`oh-my-posh font install JetBrainsMono` 或手动安装；旧版 Nerd Fonts 包里的家族名是 `JetBrainsMono Nerd Font`）。
 
 ## 快捷键
 
@@ -118,7 +118,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Install-ZshEnv.ps1
 | 症状 | 原因与处理 |
 | --- | --- |
 | `Style: roundrocket is not available` | 早期版本主题拼写错误，已修复为 `roundrock`（oh-my-posh 的耗时样式只接受德州城市名） |
-| 提示符出现方块 / 问号 | 字体未生效：终端字体设为 `JetBrainsMono Nerd Font` |
+| 提示符出现方块 / 问号 | 字体未生效：终端字体设为 `JetBrainsMono NF`（旧版 Nerd Fonts 包为 `JetBrainsMono Nerd Font`） |
 | `Test-PwshEnv` 显示 posh-git 未加载 | 正常，posh-git 改为首次按 `Tab` 时加载以加快启动 |
 | `Import-Module CompletionPredictor` 卡死 | PowerShell 7.6 下该模块会死锁，本仓库已不使用 |
 | zsh 下 `zoxide: not a directory: C:\builtin pwd -L` | zoxide 为 Cygwin/MSYS 生成的脚本缺陷，`.zshrc` 已覆盖修复 |
