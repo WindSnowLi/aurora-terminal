@@ -1,5 +1,5 @@
 {
-  // fastfetch 精简配置（Aurora 风格，随 zsh 启动显示一次）
+  // fastfetch 精简配置（Aurora 风格，随 PowerShell 启动显示一次）
   // 手动查看：ff 或 fastfetch --config ~/.config/fastfetch/aurora.jsonc
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
   "logo": {

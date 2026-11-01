@@ -41,6 +41,7 @@ $ProgressPreference = 'SilentlyContinue'
 
 $SourceRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $ProfileSource = Join-Path $SourceRoot 'Microsoft.PowerShell_profile.ps1'
+$VSCodeProfileSource = Join-Path $SourceRoot 'Microsoft.VSCode_profile.ps1'
 $ThemeSource = Join-Path $SourceRoot 'themes\aurora.omp.json'
 $FastfetchSource = Join-Path $SourceRoot 'fastfetch\aurora.jsonc'
 $TerminalSettingsSource = Join-Path $SourceRoot 'windows-terminal\settings.json'
@@ -326,6 +327,10 @@ Write-Step '部署 profile 与主题'
 $profileTarget = $PROFILE.CurrentUserCurrentHost
 $profileDir = Split-Path -Parent $profileTarget
 Copy-ConfigFile -Source $ProfileSource -Destination $profileTarget
+# VS Code 的 PowerShell 集成控制台是独立宿主，只加载 Microsoft.VSCode_profile.ps1
+if (Test-Path -LiteralPath $VSCodeProfileSource) {
+    Copy-ConfigFile -Source $VSCodeProfileSource -Destination (Join-Path $profileDir 'Microsoft.VSCode_profile.ps1')
+}
 Copy-ConfigFile -Source $ThemeSource -Destination (Join-Path $env:USERPROFILE '.config\oh-my-posh\aurora.omp.json')
 if (Test-Path -LiteralPath $FastfetchSource) {
     Copy-ConfigFile -Source $FastfetchSource -Destination (Join-Path $profileDir 'fastfetch\aurora.jsonc')

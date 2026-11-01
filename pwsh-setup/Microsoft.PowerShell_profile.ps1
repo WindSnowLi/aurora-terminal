@@ -6,7 +6,8 @@
       <我的文档>\PowerShell\ 下即可；
     - 依赖安装请运行同目录的 Install-PwshEnv.ps1；
     - 自查环境请运行 Test-PwshEnv；
-    - 不想要启动横幅：设置环境变量 PWSH_NO_FASTFETCH=1。
+    - 不想要启动横幅：设置环境变量 PWSH_NO_FASTFETCH=1；
+    - 不想要系统代理同步：设置环境变量 PWSH_SYNC_SYSTEM_PROXY=0。
 #>
 
 # ── 环境探测 ────────────────────────────────────────────────────────────────
@@ -168,7 +169,9 @@ if ($script:IsInteractive) {
                         $global:PWSH_POSH_GIT_PENDING = $false
                         Import-Module posh-git -ErrorAction SilentlyContinue
                     }
-                    [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
+                    # 千万别在这里调 PSConsoleReadLine::RevertLine()：它的语义是"撤销当前行的全部编辑"，
+                    # 会把命令行清空，随后 PSFzf 读到空行直接返回（Invoke-FzfTabCompletionInner 的
+                    # IsNullOrWhiteSpace 分支），表现就是按 Tab 命令消失。替换范围 PSFzf 自己会算。
                     Invoke-FzfTabCompletion
                 }
             } else {
@@ -273,6 +276,207 @@ function ... { Set-Location ../.. }
 function .... { Set-Location ../../.. }
 function reload { . $PROFILE }
 
+# ── 系统代理（启动时读取一次 → 环境变量）────────────────────────────────────
+# 系统代理只对 WinINet / HTTP.SYS 生效，curl / git / npm / pip / gh 这类命令行工具只认环境变量。
+# 每次启动读取注册表 Internet Settings 的 ProxyEnable / ProxyServer / ProxyOverride，
+# 翻译成 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY；系统代理改过之后，
+# 在新开的标签页里自动生效，或者在当前会话手动执行 Sync-SystemProxy 刷新。
+# 关闭同步：PWSH_SYNC_SYSTEM_PROXY=0。
+$script:ProxyRegistryPath = 'Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+$script:ProxyVariableNames = @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY')
+# 记录本次会话里自己写过的值，系统代理关掉后只清理这些（reload 时保留）
+if (-not $script:ProxyAppliedValues) {
+    $script:ProxyAppliedValues = @{}
+}
+
+function Get-SystemProxyState {
+    # 直接读 .NET 注册表（约 0.2ms/次）；Get-ItemProperty 约 4ms，不适合定时轮询
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($script:ProxyRegistryPath)
+    if (-not $key) { return $null }
+    try {
+        [pscustomobject]@{
+            Enabled       = 1 -eq [int]($key.GetValue('ProxyEnable', 0))
+            Server        = [string]$key.GetValue('ProxyServer', '')
+            Override      = [string]$key.GetValue('ProxyOverride', '')
+            AutoConfigUrl = [string]$key.GetValue('AutoConfigURL', '')
+        }
+    } finally {
+        $key.Dispose()
+    }
+}
+
+# 支持 "127.0.0.1:7897"、"http://127.0.0.1:7897"、"socks=127.0.0.1:7891" 三种写法。
+# 注册表里不带 scheme 的 ProxyServer 是"HTTP 代理端点"：HTTP_PROXY 和 HTTPS_PROXY 都要写成
+# http://host:port（变量名只表示"代理哪类请求"，不代表要用 TLS 连代理），
+# 写成 https://host:port 会让 curl/git 用 TLS 去连一个明文代理，直接连不上。
+function ConvertTo-ProxyUrl {
+    param([string]$Value, [string]$Scheme = 'http')
+
+    $text = if ($Value) { $Value.Trim() } else { '' }
+    if (-not $text) { return $null }
+    if ($text -match '^[a-z][a-z0-9+.\-]*://') { return $text }
+    if ($Scheme -eq 'socks') { return "socks5://$text" }
+    return "http://$text"
+}
+
+# ProxyOverride（';' 分隔的 Windows 例外）→ NO_PROXY（',' 分隔）：
+#   <local> → localhost/127.0.0.1/::1；192.168.* → 192.168.0.0/16；*.corp.com → .corp.com
+function ConvertTo-ProxyBypassList {
+    param([string]$Override)
+
+    $items = [System.Collections.Generic.List[string]]::new()
+    foreach ($raw in ($Override -split ';')) {
+        $entry = $raw.Trim()
+        if (-not $entry) { continue }
+        if ($entry -eq '<local>') {
+            foreach ($local in 'localhost', '127.0.0.1', '::1') {
+                if (-not $items.Contains($local)) { $items.Add($local) }
+            }
+            continue
+        }
+        if ($entry -match '^(?<octets>\d{1,3}(?:\.\d{1,3}){0,3})\.\*$') {
+            $octets = $matches['octets'].Split('.')
+            $network = (@($octets) + @('0', '0', '0'))[0..3] -join '.'
+            $entry = "$network/$($octets.Count * 8)"
+        } elseif ($entry -match '^\*\.(?<domain>.+)$') {
+            $entry = ".$($matches['domain'])"
+        }
+        if (-not $items.Contains($entry)) { $items.Add($entry) }
+    }
+    if ($items.Count -eq 0) { return $null }
+    return ($items -join ',')
+}
+
+function Get-SystemProxyEnvironment {
+    param($State)
+
+    $environment = [ordered]@{ HTTP_PROXY = $null; HTTPS_PROXY = $null; ALL_PROXY = $null; NO_PROXY = $null }
+    if (-not $State -or -not $State.Enabled -or -not $State.Server) { return $environment }
+
+    $servers = @{}
+    if ($State.Server -match '=') {
+        # 逐协议写法："http=127.0.0.1:7890;https=127.0.0.1:7890;socks=127.0.0.1:7891"
+        foreach ($part in ($State.Server -split ';')) {
+            $pair = $part -split '=', 2
+            if ($pair.Count -eq 2 -and $pair[0].Trim()) {
+                $servers[$pair[0].Trim().ToLowerInvariant()] = $pair[1].Trim()
+            }
+        }
+        # 只配了 http 或 https 时互为兜底，避免"只代理了一半"
+        if (-not $servers['http']) { $servers['http'] = $servers['https'] }
+        if (-not $servers['https']) { $servers['https'] = $servers['http'] }
+    } else {
+        $servers['http'] = $State.Server.Trim()
+        $servers['https'] = $State.Server.Trim()
+    }
+
+    $environment.HTTP_PROXY = ConvertTo-ProxyUrl -Value $servers['http']
+    $environment.HTTPS_PROXY = ConvertTo-ProxyUrl -Value $servers['https']
+    $environment.ALL_PROXY = ConvertTo-ProxyUrl -Value $servers['socks'] -Scheme 'socks'
+    $environment.NO_PROXY = ConvertTo-ProxyBypassList -Override $State.Override
+    return $environment
+}
+
+function Set-SystemProxyEnvironment {
+    param([System.Collections.IDictionary]$Environment)
+
+    foreach ($name in $script:ProxyVariableNames) {
+        $value = $Environment[$name]
+        if ($value) {
+            [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+            $script:ProxyAppliedValues[$name] = $value
+        } elseif ($script:ProxyAppliedValues[$name]) {
+            # 系统代理关掉后，只清理本次会话里自己写过的值
+            if ([Environment]::GetEnvironmentVariable($name, 'Process') -eq $script:ProxyAppliedValues[$name]) {
+                [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+            }
+            $script:ProxyAppliedValues.Remove($name)
+        }
+    }
+}
+
+function Sync-SystemProxy {
+    param([switch]$Quiet)
+
+    $state = Get-SystemProxyState
+    if (-not $state) { return }
+
+    $environment = Get-SystemProxyEnvironment -State $state
+    Set-SystemProxyEnvironment -Environment $environment
+
+    if ($Quiet) { return }
+    $applied = @($script:ProxyVariableNames | Where-Object { $environment[$_] })
+    if ($applied.Count -gt 0) {
+        Write-ProfileNote ('系统代理: {0} → {1}' -f ($environment.HTTPS_PROXY ?? $environment.HTTP_PROXY), ($applied -join ' / '))
+    } elseif ($state.Enabled) {
+        Write-ProfileNote '系统代理已启用，但没能解析出代理服务器地址'
+    } else {
+        Write-ProfileNote '系统代理未启用，未设置代理环境变量'
+    }
+}
+
+function Get-SystemProxy {
+    $state = Get-SystemProxyState
+    $environment = Get-SystemProxyEnvironment -State $state
+    [pscustomobject]@{
+        Enabled       = [bool]($state -and $state.Enabled)
+        Server        = if ($state) { $state.Server } else { '' }
+        AutoConfigUrl = if ($state) { $state.AutoConfigUrl } else { '' }
+        HttpProxy     = $environment.HTTP_PROXY
+        HttpsProxy    = $environment.HTTPS_PROXY
+        AllProxy      = $environment.ALL_PROXY
+        NoProxy       = $environment.NO_PROXY
+    }
+}
+
+# 自助诊断：注册表原始值 → 应设置的值 → 当前进程里的实际值；-Probe 再用 curl 实测能否连通
+function Test-SystemProxy {
+    param([switch]$Probe)
+
+    $state = Get-SystemProxyState
+    if (-not $state) {
+        Write-Host '  读不到 HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host '系统代理（注册表）' -ForegroundColor Cyan
+    Write-Host ("  ProxyEnable   : {0}" -f $state.Enabled)
+    Write-Host ("  ProxyServer   : {0}" -f $state.Server)
+    Write-Host ("  ProxyOverride : {0}" -f $state.Override)
+    if ($state.AutoConfigUrl) { Write-Host ("  AutoConfigURL : {0}（PAC 无法静态解析）" -f $state.AutoConfigUrl) }
+
+    $environment = Get-SystemProxyEnvironment -State $state
+    Write-Host '环境变量（期望 / 当前进程实际）' -ForegroundColor Cyan
+    foreach ($name in $script:ProxyVariableNames) {
+        $expected = $environment[$name]
+        $actual = [Environment]::GetEnvironmentVariable($name, 'Process')
+        $color = if ($actual -eq $expected) { 'DarkGray' } else { 'Yellow' }
+        Write-Host ("  {0,-11} 期望=[{1}] 实际=[{2}]" -f $name, $expected, $actual) -ForegroundColor $color
+    }
+
+    if (-not $Probe) { return }
+
+    # WinHTTP 和 WinINet 是两套设置：winget / Windows Update 之类只认 WinHTTP，不读环境变量
+    $winHttp = (& netsh winhttp show proxy 2>$null | Where-Object { $_.Trim() -and $_ -notmatch 'WinHTTP' } |
+            Select-Object -First 1)
+    Write-Host ("  WinHTTP      : {0}" -f ($winHttp -replace '^\s+|\s+$', '')) -ForegroundColor DarkGray
+
+    if (-not (Test-Tool curl)) {
+        Write-Host '  未找到 curl，跳过连通性探测' -ForegroundColor Yellow
+        return
+    }
+    $code = & curl.exe -s -o NUL -w '%{http_code}' -m 8 https://www.example.com
+    $color = if ($code -eq '200') { 'Green' } else { 'Yellow' }
+    Write-Host ("  经当前环境变量访问 https://www.example.com → HTTP {0}" -f $code) -ForegroundColor $color
+}
+
+# 启动时读取一次（交互式会话会打印一行确认；脚本 / 管道会话静默生效）
+# 用 OSVersion 判断而不是 $IsWindows：Windows PowerShell 5.1 里没有 $IsWindows，会让同步被整个跳过
+if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT -and
+    $env:PWSH_SYNC_SYSTEM_PROXY -notin '0', 'false', 'off') {
+    Sync-SystemProxy
+}
+
 # ── 启动横幅（fastfetch）────────────────────────────────────────────────────
 if ($script:IsInteractive -and -not $env:PWSH_NO_FASTFETCH -and (Test-Tool fastfetch)) {
     $ffConfig = Join-Path $script:ProfileRoot 'fastfetch\aurora.jsonc'
@@ -302,6 +506,17 @@ function Test-PwshEnv {
         @{ Name = 'PSFzf'; Ok = [bool](Get-Module PSFzf); Detail = (Get-Module PSFzf).Version }
         @{ Name = 'PSReadLine'; Ok = [bool](Get-Module PSReadLine); Detail = (Get-Module PSReadLine).Version }
     )
+
+    $proxy = Get-SystemProxy
+    $proxyDetail = if (-not $proxy.Enabled) {
+        if ($proxy.AutoConfigUrl) { "PAC 脚本，未同步（$($proxy.AutoConfigUrl)）" } else { '系统代理未启用' }
+    } elseif (-not $proxy.HttpsProxy) {
+        '已启用但未解析出代理地址'
+    } else {
+        '{0}（启动时同步）' -f $proxy.HttpsProxy
+    }
+    $items += @{ Name = 'system-proxy'; Ok = (-not $proxy.Enabled) -or [bool]$proxy.HttpsProxy; Detail = $proxyDetail }
+
     foreach ($tool in 'oh-my-posh', 'fzf', 'fd', 'rg', 'eza', 'bat', 'zoxide', 'git', 'lazygit', 'btop4win', 'fastfetch', 'delta') {
         $command = Get-Command $tool -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         $items += @{ Name = $tool; Ok = [bool]$command; Detail = if ($command) { $command.Source } else { '未安装' } }

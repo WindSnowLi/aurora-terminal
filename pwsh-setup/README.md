@@ -6,15 +6,14 @@
 < [返回仓库首页](../README.md)
 
 一套可直接带走的 PowerShell 7 配置：**oh-my-posh（aurora 主题）+ zoxide + eza + bat + fd + rg + fzf + lazygit + btop + fastfetch + delta**，
-外加 posh-git / Terminal-Icons / PSFzf / ConsoleGuiTools 与深度调优的 PSReadLine。附一键还原脚本。
-
-> 也想要 zsh？同仓库的 [zsh-setup](../zsh-setup/README.md) 是配套的 MSYS2 + Oh My Zsh + Powerlevel10k 方案（与本包视觉统一）。
+外加 posh-git / Terminal-Icons / PSFzf / ConsoleGuiTools、系统代理自动同步与深度调优的 PSReadLine。附一键还原脚本。
 
 ## 目录结构
 
 | 文件 | 用途 |
 | --- | --- |
-| `Microsoft.PowerShell_profile.ps1` | 主配置：可移植路径、按需降级、各个工具接线、PSReadLine 调优、`Test-PwshEnv` 自检 |
+| `Microsoft.PowerShell_profile.ps1` | 主配置：可移植路径、按需降级、各个工具接线、PSReadLine 调优、系统代理同步、`Test-PwshEnv` 自检 |
+| `Microsoft.VSCode_profile.ps1` | VS Code 集成控制台（独立宿主）的入口，转交主配置 |
 | `themes/aurora.omp.json` | oh-my-posh 主题（深色 aurora） |
 | `fastfetch/aurora.jsonc` | 启动横幅（系统/内存/磁盘/IP） |
 | `Install-PwshEnv.ps1` | 一键安装 + 部署 + 自检（幂等） |
@@ -50,7 +49,39 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Install-PwshEnv.ps1
 | `ff` | fastfetch（也可直接看启动横幅） |
 | `z 关键词` / `zi` | zoxide 智能跳转 / 交互选择 |
 | `ocgv` | Out-ConsoleGridView 网格化选择（`Get-Process \| ocgv`） |
+| `Sync-SystemProxy` | 立即把系统代理重新同步成环境变量（改完系统代理不想新开标签页时用；`-Quiet` 不输出提示） |
+| `Get-SystemProxy` | 查看系统代理与解析出的 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` |
+| `Test-SystemProxy [-Probe]` | 排障：注册表原始值 → 应设置的值 → 当前进程实际值；`-Probe` 再用 curl 实测连通性 |
 | `which` / `mkcd` / `reload` / `..` `...` `....` | PowerShell 友好替代 |
+
+## 系统代理
+
+Windows 的「系统代理」（设置 → 网络和 Internet → 代理，或 Internet 选项 → 局域网设置）只对 WinINet / HTTP.SYS 生效，
+`curl`、`git`、`npm`、`pip`、`gh` 这类命令行工具只认环境变量。profile 在**启动时读取一次**注册表
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` 的 `ProxyEnable` / `ProxyServer` / `ProxyOverride`，
+翻译成环境变量；交互式会话会打印一行确认，形如 `系统代理: http://127.0.0.1:7897 → HTTP_PROXY / HTTPS_PROXY / NO_PROXY`。
+不做后台监听：系统代理改过之后，新开的标签页自动生效；当前会话想立刻刷新就执行 `Sync-SystemProxy`。
+
+| 系统代理设置 | 环境变量 |
+| --- | --- |
+| `ProxyServer` = `127.0.0.1:7897` | `HTTP_PROXY` = `http://127.0.0.1:7897`、`HTTPS_PROXY` = `http://127.0.0.1:7897` |
+| `ProxyServer` = `http=…;https=…;socks=…`（逐协议） | 分别取 `http` / `https` / `socks`（只有其一时 http 与 https 互为兜底），`socks` → `ALL_PROXY=socks5://…` |
+| `ProxyOverride` = `localhost;127.*;192.168.*;<local>` | `NO_PROXY`：`<local>` 展开为 `localhost,127.0.0.1,::1`，`192.168.*` 转成 `192.168.0.0/16`，`*.corp.com` → `.corp.com` |
+
+> `HTTPS_PROXY` 也写成 `http://host:port`：变量名只表示「代理哪类请求」，不代表要用 TLS 连代理。
+> 写成 `https://127.0.0.1:7897` 会让 curl / git 用 TLS 去连一个明文代理，直接连不上（`curl` 返回 `000`）。
+> 如果 `ProxyServer` 本身写了 scheme（例如 `https://proxy:443`），则原样保留。
+
+行为约定：
+
+- 每个会话启动时重新读取，覆盖继承来的同名变量（系统代理是权威来源）
+- 系统代理关闭（`ProxyEnable=0`）时不设置任何变量；本会话里之前由 profile 写入的值会被清掉
+- `AutoConfigURL`（PAC 脚本）无法静态解析，会跳过并在 `Test-PwshEnv` 里标明
+- 想确认状态：`Get-SystemProxy` 或 `Test-PwshEnv`（有 `system-proxy` 一行）；怀疑没生效就运行 `Test-SystemProxy -Probe`，
+  它会一起列出注册表值、应设置的值、当前进程实际值，并用 curl 实测一次（`HTTP 200` 表示真的走通代理）
+- VS Code 的「PowerShell 集成控制台」是独立宿主，安装脚本会额外部署 `Microsoft.VSCode_profile.ps1` 转交主配置
+
+开关：`PWSH_SYNC_SYSTEM_PROXY=0` 完全关闭同步。
 
 ## 快捷键
 
@@ -100,6 +131,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Install-PwshEnv.ps1
 7. **提示符图标显示为 `?`**：两个原因叠加 —— profile 里写死的字体（如 `Fira Code`）优先级高于
    `profiles.defaults`，以及耗时段的 `\ufbab` 在 Nerd Fonts 3.x 里没有字形。现在合并时会把默认 profile
    的非 Nerd 字体家族换成 `JetBrainsMono NF`（字号保留），耗时图标改用 `\uf2f2`。
+8. **连按 `Tab` 会把整条命令清空**：Tab handler 里多了一句 `PSConsoleReadLine::RevertLine()`，
+   而它在没有"已接受的预测"时会**撤销当前行的全部编辑**（PSReadLine 源码里就是循环 `_edits[i].Undo()`）。
+   第一次 Tab 只是关掉列表预测，第二次 Tab 就把命令行清空；随后 PSFzf 的 `Invoke-FzfTabCompletionInner`
+   读到空行直接 `return $false`，于是什么都没补全。已删除该调用，按 PSFzf 官方方式只调 `Invoke-FzfTabCompletion`
+   （替换范围由 PSFzf 用 `ReplacementIndex` / `ReplacementLength` 自己算）。
 
 ## 手动恢复（不想跑脚本）
 
@@ -122,3 +158,4 @@ Copy-Item .\fastfetch\aurora.jsonc "$dir\fastfetch\aurora.jsonc" -Force
 - 主题查找顺序：`<profile 目录>\themes\aurora.omp.json` → `~\.config\oh-my-posh\aurora.omp.json`，改完 `. $PROFILE` 生效
 - 常用段可调项：`path.max_depth`（路径深度）、`executiontime.threshold`（毫秒）/`style`、`git.fetch_status`（实时查远端，关闭可提速）
 - 想改别名/键位：直接编辑 profile 里对应小节；缺件时 profile 会静默降级，不会报错
+- 系统代理同步：`Get-SystemProxy` 看当前解析结果，`Sync-SystemProxy` 手动刷新；不要同步就设 `PWSH_SYNC_SYSTEM_PROXY=0`

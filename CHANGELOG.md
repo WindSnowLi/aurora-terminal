@@ -4,8 +4,27 @@
 
 ## [Unreleased]
 
+### Added
+
+- PowerShell 配置新增**系统代理同步**：启动时读取注册表 `Internet Settings` 的 `ProxyEnable` / `ProxyServer` / `ProxyOverride`，
+  翻译成 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`（`<local>` 展开、`192.168.*` → `192.168.0.0/16` 等）
+  - 只在启动时读取一次，不做后台监听；改完系统代理后新开标签页生效，当前会话可用 `Sync-SystemProxy` 手动刷新
+  - `HTTPS_PROXY` 使用 `http://host:port`（变量名只表示代理哪类请求），显式带 scheme 的 `ProxyServer` 原样保留
+  - 系统代理关闭时不设置任何变量，并清理本会话里由 profile 写入的值
+  - 新增 `Sync-SystemProxy` / `Get-SystemProxy` / `Test-SystemProxy [-Probe]`（`-Probe` 会对比「期望/实际」环境变量、显示 WinHTTP 状态并用 curl 实测连通性），`Test-PwshEnv` 增加 `system-proxy` 状态行，`PWSH_SYNC_SYSTEM_PROXY=0` 可关闭
+- 新增 `Microsoft.VSCode_profile.ps1`：VS Code 的 PowerShell 集成控制台是独立宿主（只加载该文件），
+  安装脚本会把它部署到 profile 目录并转交主配置，避免 VS Code 里没有提示符/别名/代理环境变量
+
+### Removed
+
+- 移除 `zsh-setup`（MSYS2 + Oh My Zsh + Powerlevel10k 方案）：仓库只维护 PowerShell 7 一条主线，
+  `.zshrc`、`.p10k.zsh`、`Install-ZshEnv.ps1`、`windows-terminal/zsh-profile.json`、`packages.txt` 及其 README 一并删除，
+  根 README 的特性表、快速开始、目录结构、兼容性说明、故障排查与卸载中的 zsh 内容同步清理
+
 ### Fixed
 
+- 连按 `Tab` 清空整条命令：Tab handler 里多余的 `PSConsoleReadLine::RevertLine()` 会撤销当前行的全部编辑，
+  第一次 Tab 关掉列表预测、第二次 Tab 就把命令行清空，PSFzf 随后读到空行直接返回。已改为直接调用 `Invoke-FzfTabCompletion`
 - `Install-PwshEnv.ps1` 不再整份覆盖 Windows Terminal `settings.json`，改为合并 Aurora 配色/主题/`profiles.defaults` 并保留用户已有的 profile、键位与配色（仍会先备份）
 - Windows Terminal 配置字体名改为 `JetBrainsMono NF`（Nerd Fonts 3.4+ 家族名），修复提示符图标显示为方块的问题
 - `oh-my-posh font install` 在部分环境不退出导致安装脚本挂起，改为带 5 分钟超时等待
