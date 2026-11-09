@@ -276,11 +276,13 @@ function ... { Set-Location ../.. }
 function .... { Set-Location ../../.. }
 function reload { . $PROFILE }
 
-# ── 系统代理（启动时读取一次 → 环境变量）────────────────────────────────────
+# ── 系统代理（启动时读取一次 → 环境变量 + git 配置）─────────────────────────
 # 系统代理只对 WinINet / HTTP.SYS 生效，curl / git / npm / pip / gh 这类命令行工具只认环境变量。
 # 每次启动读取注册表 Internet Settings 的 ProxyEnable / ProxyServer / ProxyOverride，
 # 翻译成 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY；系统代理改过之后，
 # 在新开的标签页里自动生效，或者在当前会话手动执行 Sync-SystemProxy 刷新。
+# git 另外读取 config 里的 http.proxy / https.proxy，这两项优先于环境变量，
+# 启动时一并比对改写（Sync-GitProxy）。
 # 关闭同步：PWSH_SYNC_SYSTEM_PROXY=0。
 $script:ProxyRegistryPath = 'Software\Microsoft\Windows\CurrentVersion\Internet Settings'
 $script:ProxyVariableNames = @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY')
@@ -415,6 +417,57 @@ function Sync-SystemProxy {
     }
 }
 
+# git 的 http.proxy / https.proxy 优先于 HTTP_PROXY / HTTPS_PROXY 环境变量：
+# 代理客户端换了端口后，写死的旧端口仍然生效，git 会去连一个没人监听的端口（
+# `Failed to connect to github.com port 443 via 127.0.0.1`）。
+# 启动时把这两项与系统代理对比，值不同才改写；原本没有写的键不新建。
+# 仓库级配置优先于全局，当前目录是仓库（存在 .git）时一并检查。
+function Get-GitProxyConfig {
+    param([ValidateSet('global', 'local')][string]$Scope = 'global')
+
+    $values = @{}
+    if (-not (Test-Tool git)) { return $values }
+    foreach ($line in (& git config "--$Scope" --get-regexp '^https?\.proxy$' 2>$null)) {
+        $pair = $line -split '\s+', 2
+        if ($pair.Count -eq 2 -and $pair[1].Trim()) {
+            $values[$pair[0].Trim().ToLowerInvariant()] = $pair[1].Trim()
+        }
+    }
+    return $values
+}
+
+function Sync-GitProxy {
+    param([switch]$Quiet)
+
+    if (-not (Test-Tool git)) { return }
+
+    $environment = Get-SystemProxyEnvironment -State (Get-SystemProxyState)
+    $desired = $environment.HTTPS_PROXY
+    if (-not $desired) { $desired = $environment.HTTP_PROXY }
+    if (-not $desired) {
+        if (-not $Quiet) { Write-ProfileNote '系统代理未启用，git 代理配置保持不变' }
+        return
+    }
+
+    $scopes = if (Test-Path -LiteralPath '.git') { 'local', 'global' } else { 'global' }
+    $changes = [System.Collections.Generic.List[string]]::new()
+    foreach ($scope in $scopes) {
+        $current = Get-GitProxyConfig -Scope $scope
+        foreach ($key in 'http.proxy', 'https.proxy') {
+            $existing = $current[$key]
+            if (-not $existing -or $existing -eq $desired) { continue }
+            & git config "--$scope" $key $desired 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $changes.Add(('{0} {1}: {2} → {3}' -f $scope, $key, $existing, $desired))
+            }
+        }
+    }
+
+    if ($changes.Count -gt 0 -and -not $Quiet) {
+        Write-ProfileNote ('git 代理: {0}' -f ($changes -join '; '))
+    }
+}
+
 function Get-SystemProxy {
     $state = Get-SystemProxyState
     $environment = Get-SystemProxyEnvironment -State $state
@@ -454,6 +507,22 @@ function Test-SystemProxy {
         Write-Host ("  {0,-11} 期望=[{1}] 实际=[{2}]" -f $name, $expected, $actual) -ForegroundColor $color
     }
 
+    if (Test-Tool git) {
+        Write-Host 'git 配置（优先于环境变量）' -ForegroundColor Cyan
+        $expectedProxy = $environment.HTTPS_PROXY
+        foreach ($scope in 'global', 'local') {
+            $config = Get-GitProxyConfig -Scope $scope
+            foreach ($key in 'http.proxy', 'https.proxy') {
+                $actual = $config[$key]
+                $color = if (-not $actual -or $actual -eq $expectedProxy) { 'DarkGray' } else { 'Yellow' }
+                Write-Host ("  {0,-6} {1,-12} {2}" -f $scope, $key, $(if ($actual) { $actual } else { '(未设置)' })) -ForegroundColor $color
+            }
+        }
+        if ($expectedProxy) {
+            Write-Host '  与期望值不同的项可用 Sync-GitProxy 改写（会话启动时会自动处理）' -ForegroundColor DarkGray
+        }
+    }
+
     if (-not $Probe) { return }
 
     # WinHTTP 和 WinINet 是两套设置：winget / Windows Update 之类只认 WinHTTP，不读环境变量
@@ -475,6 +544,7 @@ function Test-SystemProxy {
 if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT -and
     $env:PWSH_SYNC_SYSTEM_PROXY -notin '0', 'false', 'off') {
     Sync-SystemProxy
+    Sync-GitProxy
 }
 
 # ── 启动横幅（fastfetch）────────────────────────────────────────────────────

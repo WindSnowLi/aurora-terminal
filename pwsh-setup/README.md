@@ -49,7 +49,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Install-PwshEnv.ps1
 | `ff` | fastfetch（也可直接看启动横幅） |
 | `z 关键词` / `zi` | zoxide 智能跳转 / 交互选择 |
 | `ocgv` | Out-ConsoleGridView 网格化选择（`Get-Process \| ocgv`） |
-| `Sync-SystemProxy` | 立即把系统代理重新同步成环境变量（改完系统代理不想新开标签页时用；`-Quiet` 不输出提示） |
+| `Sync-SystemProxy` | 立即把系统代理重新同步成环境变量（改完系统代理不想 新开标签页时用；`-Quiet` 不输出提示） |
+| `Sync-GitProxy` | 立即把 git 的 `http.proxy` / `https.proxy` 改成当前系统代理（启动时会自动比对，值一致则不动） |
 | `Get-SystemProxy` | 查看系统代理与解析出的 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` |
 | `Test-SystemProxy [-Probe]` | 排障：注册表原始值 → 应设置的值 → 当前进程实际值；`-Probe` 再用 curl 实测连通性 |
 | `which` / `mkcd` / `reload` / `..` `...` `....` | PowerShell 友好替代 |
@@ -61,6 +62,13 @@ Windows 的「系统代理」（设置 → 网络和 Internet → 代理，或 I
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` 的 `ProxyEnable` / `ProxyServer` / `ProxyOverride`，
 翻译成环境变量；交互式会话会打印一行确认，形如 `系统代理: http://127.0.0.1:7897 → HTTP_PROXY / HTTPS_PROXY / NO_PROXY`。
 不做后台监听：系统代理改过之后，新开的标签页自动生效；当前会话想立刻刷新就执行 `Sync-SystemProxy`。
+
+git 另外读 `config` 里的 `http.proxy` / `https.proxy`，这两项优先于 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量：
+代理客户端换了端口之后，写死的旧端口仍然生效，git 会去连一个没人监听的端口
+（`Failed to connect to github.com port 443 via 127.0.0.1`）。`Sync-GitProxy` 在每次启动时把这两项
+与系统代理对比，值不同才用 `git config` 改写；原本没有写的键不新建。当前目录存在 `.git` 时连仓库级配置一起检查，
+仓库级配置优先于全局。交互式会话改写后会打印一行，形如
+`git 代理: local http.proxy: http://127.0.0.1:6789 → http://127.0.0.1:7865`。
 
 | 系统代理设置 | 环境变量 |
 | --- | --- |
@@ -75,6 +83,7 @@ Windows 的「系统代理」（设置 → 网络和 Internet → 代理，或 I
 行为约定：
 
 - 每个会话启动时重新读取，覆盖继承来的同名变量（系统代理是权威来源）
+- git 的 `http.proxy` / `https.proxy` 同样跟随系统代理（`Sync-GitProxy`）：只改写已存在且值不同的键，值相同则保留不动
 - 系统代理关闭（`ProxyEnable=0`）时不设置任何变量；本会话里之前由 profile 写入的值会被清掉
 - `AutoConfigURL`（PAC 脚本）无法静态解析，会跳过并在 `Test-PwshEnv` 里标明
 - 想确认状态：`Get-SystemProxy` 或 `Test-PwshEnv`（有 `system-proxy` 一行）；怀疑没生效就运行 `Test-SystemProxy -Probe`，
@@ -158,4 +167,4 @@ Copy-Item .\fastfetch\aurora.jsonc "$dir\fastfetch\aurora.jsonc" -Force
 - 主题查找顺序：`<profile 目录>\themes\aurora.omp.json` → `~\.config\oh-my-posh\aurora.omp.json`，改完 `. $PROFILE` 生效
 - 常用段可调项：`path.max_depth`（路径深度）、`executiontime.threshold`（毫秒）/`style`、`git.fetch_status`（实时查远端，关闭可提速）
 - 想改别名/键位：直接编辑 profile 里对应小节；缺件时 profile 会静默降级，不会报错
-- 系统代理同步：`Get-SystemProxy` 看当前解析结果，`Sync-SystemProxy` 手动刷新；不要同步就设 `PWSH_SYNC_SYSTEM_PROXY=0`
+- 系统代理同步：`Get-SystemProxy` 看当前解析结果，`Sync-SystemProxy` / `Sync-GitProxy` 手动 刷新环境变量 / git 配置；不要同步就设 `PWSH_SYNC_SYSTEM_PROXY=0`

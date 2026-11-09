@@ -6,6 +6,10 @@
 
 ### Added
 
+- PowerShell 配置新增 **git 代理跟随**：`Sync-GitProxy` 在每次会话启动时读取系统代理，与 git 的
+  `http.proxy` / `https.proxy` 比对，值不同才用 `git config` 改写（原本没有写的键不新建）；当前目录存在 `.git`
+  时连仓库级配置一起检查。代理客户端换端口后不需要再手动改 git 配置
+  - `Test-SystemProxy` 增加 git 配置段落：列出 global / local 的 `http.proxy` / `https.proxy`，与期望值不同时高亮
 - PowerShell 配置新增**系统代理同步**：启动时读取注册表 `Internet Settings` 的 `ProxyEnable` / `ProxyServer` / `ProxyOverride`，
   翻译成 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`（`<local>` 展开、`192.168.*` → `192.168.0.0/16` 等）
   - 只在启动时读取一次，不做后台监听；改完系统代理后新开标签页生效，当前会话可用 `Sync-SystemProxy` 手动刷新
